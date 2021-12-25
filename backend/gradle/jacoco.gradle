@@ -6,6 +6,9 @@ jacoco {
 
 def excludes = [
         "de/otto/platform/gitactionboard/config/WebSecurityConfig.class",
+        "de/otto/platform/gitactionboard/config/WebSecurityConfig\$*.class",
+//        "de/otto/platform/gitactionboard/config/WebSecurityConfig\$GithubOauthSecurityConfig.class",
+//        "de/otto/platform/gitactionboard/config/WebSecurityConfig.BasicAuthSecurityConfig.class",
         "de/otto/platform/gitactionboard/config/NoOpsWebSecurityConfig.class",
 ]
 

@@ -1,66 +1,184 @@
 package de.otto.platform.gitactionboard.config;
 
+import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter.Directive.ALL;
 
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.AbstractMap;
+import java.util.List;
+import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.authentication.logout.HeaderWriterLogoutHandler;
 import org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter;
 
-@Configuration
 @EnableWebSecurity
-@Slf4j
 @Profile("beta")
-@ConditionalOnMissingBean(NoOpsWebSecurityConfig.class)
-public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
-  private final String actuatorBasePath;
-  private final GithubAuthenticationSuccessHandler authenticationSuccessHandler;
+public class WebSecurityConfig {
 
-  @SuppressFBWarnings("EI_EXPOSE_REP2")
-  public WebSecurityConfig(
-      @Value("${management.endpoints.web.base-path:/actuator}") String actuatorBasePath,
-      GithubAuthenticationSuccessHandler authenticationSuccessHandler) {
-    this.actuatorBasePath = actuatorBasePath;
-    this.authenticationSuccessHandler = authenticationSuccessHandler;
+  private static HttpSecurity getDefaultSettings(HttpSecurity http) throws Exception {
+    return http.cors().disable().csrf().disable().formLogin().disable();
   }
 
-  @PostConstruct
-  @SuppressWarnings("PMD.UnusedPrivateMethod")
-  private void logInfo() {
-    log.info("Enabled Github authentication as value is present for GITHUB_OAUTH2_CLIENT_ID");
+  @Configuration
+  @Order(1)
+  @ConditionalOnMissingBean(NoOpsWebSecurityConfig.class)
+  public static class WhiteListSecurityConfig extends WebSecurityConfigurerAdapter {
+    private final String actuatorBasePath;
+
+    public WhiteListSecurityConfig(
+        @Value("${management.endpoints.web.base-path:/actuator}") String actuatorBasePath) {
+      this.actuatorBasePath = actuatorBasePath;
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+      final String healthEndPoint = String.format("%s/health", actuatorBasePath);
+
+      getDefaultSettings(http)
+          .requestMatchers()
+          .antMatchers(healthEndPoint)
+          .and()
+          .authorizeRequests()
+          .antMatchers(healthEndPoint)
+          .permitAll();
+    }
   }
 
-  @Override
-  protected void configure(HttpSecurity http) throws Exception {
-    http.cors()
-        .disable()
-        .csrf()
-        .disable()
-        .formLogin()
-        .disable()
-        .httpBasic()
-        .disable()
-        .authorizeRequests()
-        .antMatchers(String.format("%s/health", actuatorBasePath), "/login/oauth2/**", "/oauth2/**")
-        .permitAll()
-        .and()
-        .authorizeRequests()
-        .anyRequest()
-        .authenticated()
-        .and()
-        .oauth2Login()
-        .successHandler(authenticationSuccessHandler)
-        .and()
-        .logout()
-        .addLogoutHandler(new HeaderWriterLogoutHandler(new ClearSiteDataHeaderWriter(ALL)))
-        .invalidateHttpSession(true);
+  @Slf4j
+  @Order(2)
+  @Configuration
+  @ConditionalOnExpression(
+      "T(org.springframework.util.StringUtils).hasText('${BASIC_AUTH_USER_DETAILS_FILE_PATH:}')")
+  @ConditionalOnMissingBean(NoOpsWebSecurityConfig.class)
+  public static class BasicAuthSecurityConfig extends WebSecurityConfigurerAdapter {
+    private static final String CREDENTIAL_SEPARATOR = ":";
+
+    private final String basicAuthFilePath;
+    private final boolean githubAuthDisabled;
+
+    public BasicAuthSecurityConfig(
+        @Value("${BASIC_AUTH_USER_DETAILS_FILE_PATH}") String basicAuthFilePath,
+        @Value("${GITHUB_OAUTH2_CLIENT_ID:}") String githubAuthClientId) {
+      this.basicAuthFilePath = basicAuthFilePath;
+      this.githubAuthDisabled = githubAuthClientId.isBlank();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+      return new BCryptPasswordEncoder();
+    }
+
+    private static List<UserDetails> getBasicAuthUsers(String basicAuthFilePath)
+        throws IOException {
+      return Files.readAllLines(Path.of(basicAuthFilePath)).stream()
+          .filter(line -> !line.isBlank())
+          .map(
+              line -> {
+                final String[] credentials = line.split(CREDENTIAL_SEPARATOR);
+                return new AbstractMap.SimpleImmutableEntry<>(credentials[0], credentials[1]);
+              })
+          .map(
+              authDetails ->
+                  User.withUsername(authDetails.getKey())
+                      .password(authDetails.getValue())
+                      .authorities("ROLE_USER")
+                      .build())
+          .collect(Collectors.toList());
+    }
+
+    @PostConstruct
+    @SuppressWarnings("PMD.UnusedPrivateMethod")
+    private void logInfo() {
+      log.info(
+          "Enabled Basic authentication as value is present for BASIC_AUTH_USER_DETAILS_FILE_PATH");
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+      auth.userDetailsService(new InMemoryUserDetailsManager(getBasicAuthUsers(basicAuthFilePath)));
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+      http.cors()
+          .disable()
+          .csrf()
+          .disable()
+          .formLogin()
+          .disable()
+          .requestMatcher(
+              request -> {
+                final String auth = request.getHeader(AUTHORIZATION);
+                return githubAuthDisabled || auth != null && auth.startsWith("Basic");
+              })
+          .authorizeRequests()
+          .anyRequest()
+          .authenticated()
+          .and()
+          .httpBasic();
+    }
+  }
+
+  @Slf4j
+  @Order(3)
+  @Configuration
+  @RequiredArgsConstructor
+  @ConditionalOnProperty("GITHUB_OAUTH2_CLIENT_ID")
+  @ConditionalOnMissingBean(NoOpsWebSecurityConfig.class)
+  public static class GithubOauthSecurityConfig extends WebSecurityConfigurerAdapter {
+    private final GithubAuthenticationSuccessHandler authenticationSuccessHandler;
+
+    @PostConstruct
+    @SuppressWarnings("PMD.UnusedPrivateMethod")
+    private void logInfo() {
+      log.info("Enabled Github authentication as value is present for GITHUB_OAUTH2_CLIENT_ID");
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+      http.cors()
+          .disable()
+          .csrf()
+          .disable()
+          .formLogin()
+          .disable()
+          .httpBasic()
+          .disable()
+          .authorizeRequests()
+          .antMatchers("/login/oauth2/**", "/oauth2/**")
+          .permitAll()
+          .and()
+          .authorizeRequests()
+          .anyRequest()
+          .authenticated()
+          .and()
+          .oauth2Login()
+          .successHandler(authenticationSuccessHandler)
+          .and()
+          .logout()
+          .addLogoutHandler(new HeaderWriterLogoutHandler(new ClearSiteDataHeaderWriter(ALL)))
+          .invalidateHttpSession(true);
+    }
   }
 }
