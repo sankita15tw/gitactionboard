@@ -1,4 +1,4 @@
-package de.otto.platform.gitactionboard.config;
+package de.otto.platform.gitactionboard.config.security;
 
 import org.springframework.boot.autoconfigure.condition.AllNestedConditions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;

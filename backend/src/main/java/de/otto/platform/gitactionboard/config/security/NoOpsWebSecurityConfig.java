@@ -1,4 +1,4 @@
-package de.otto.platform.gitactionboard.config;
+package de.otto.platform.gitactionboard.config.security;
 
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;

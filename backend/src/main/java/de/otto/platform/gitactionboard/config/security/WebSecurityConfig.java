@@ -1,4 +1,4 @@
-package de.otto.platform.gitactionboard.config;
+package de.otto.platform.gitactionboard.config.security;
 
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter.Directive.ALL;
@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -89,7 +91,8 @@ public class WebSecurityConfig {
       return new BCryptPasswordEncoder();
     }
 
-    private static List<UserDetails> getBasicAuthUsers(String basicAuthFilePath)
+    @Bean(name = "basicAuthUsers")
+    public List<UserDetails> getBasicAuthUsers(@Value("${BASIC_AUTH_USER_DETAILS_FILE_PATH}") String basicAuthFilePath)
         throws IOException {
       return Files.readAllLines(Path.of(basicAuthFilePath)).stream()
           .filter(line -> !line.isBlank())
@@ -107,16 +110,22 @@ public class WebSecurityConfig {
           .collect(Collectors.toList());
     }
 
+    @Bean("basicAuthenticationManager")
+    @Override
+    public AuthenticationManager authenticationManagerBean() throws Exception {
+      return super.authenticationManagerBean();
+    }
+
+    @Bean
+    public InMemoryUserDetailsManager basicAuthUserDetailsManager(@Qualifier("basicAuthUsers") List<UserDetails> basicAuthUsers){
+      return new InMemoryUserDetailsManager(basicAuthUsers);
+    }
+
     @PostConstruct
     @SuppressWarnings("PMD.UnusedPrivateMethod")
     private void logInfo() {
       log.info(
           "Enabled Basic authentication as value is present for BASIC_AUTH_USER_DETAILS_FILE_PATH");
-    }
-
-    @Override
-    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-      auth.userDetailsService(new InMemoryUserDetailsManager(getBasicAuthUsers(basicAuthFilePath)));
     }
 
     @Override
@@ -132,11 +141,16 @@ public class WebSecurityConfig {
                 final String auth = request.getHeader(AUTHORIZATION);
                 return githubAuthDisabled || auth != null && auth.startsWith("Basic");
               })
-          .authorizeRequests()
+          .authorizeRequests().antMatchers("/login/basic").permitAll()
+          .and().authorizeRequests()
           .anyRequest()
           .authenticated()
           .and()
-          .httpBasic();
+          .httpBasic()
+          .and()
+          .logout()
+          .addLogoutHandler(new HeaderWriterLogoutHandler(new ClearSiteDataHeaderWriter(ALL)))
+          .invalidateHttpSession(true);
     }
   }
 
