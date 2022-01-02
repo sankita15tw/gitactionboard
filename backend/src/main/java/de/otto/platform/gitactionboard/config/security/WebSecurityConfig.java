@@ -16,13 +16,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
@@ -37,6 +35,9 @@ import org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter
 @EnableWebSecurity
 @Profile("beta")
 public class WebSecurityConfig {
+
+  public static final String LOGIN_PATH = "/#/login";
+  public static final String DASHBOARD_PATH = "/#/dashboard";
 
   private static HttpSecurity getDefaultSettings(HttpSecurity http) throws Exception {
     return http.cors().disable().csrf().disable().formLogin().disable();
@@ -57,12 +58,23 @@ public class WebSecurityConfig {
     protected void configure(HttpSecurity http) throws Exception {
       final String healthEndPoint = String.format("%s/health", actuatorBasePath);
 
+      final String[] whitelistUrls = {
+        healthEndPoint,
+        "/available-auths",
+        "/",
+        "/index.html",
+        "/css/*.css",
+        "/js/*.js",
+        "favicon.ico",
+        "/login/**"
+      };
+
       getDefaultSettings(http)
           .requestMatchers()
-          .antMatchers(healthEndPoint)
+          .antMatchers(whitelistUrls)
           .and()
           .authorizeRequests()
-          .antMatchers(healthEndPoint)
+          .antMatchers(whitelistUrls)
           .permitAll();
     }
   }
@@ -76,13 +88,10 @@ public class WebSecurityConfig {
   public static class BasicAuthSecurityConfig extends WebSecurityConfigurerAdapter {
     private static final String CREDENTIAL_SEPARATOR = ":";
 
-    private final String basicAuthFilePath;
     private final boolean githubAuthDisabled;
 
     public BasicAuthSecurityConfig(
-        @Value("${BASIC_AUTH_USER_DETAILS_FILE_PATH}") String basicAuthFilePath,
         @Value("${GITHUB_OAUTH2_CLIENT_ID:}") String githubAuthClientId) {
-      this.basicAuthFilePath = basicAuthFilePath;
       this.githubAuthDisabled = githubAuthClientId.isBlank();
     }
 
@@ -92,7 +101,8 @@ public class WebSecurityConfig {
     }
 
     @Bean(name = "basicAuthUsers")
-    public List<UserDetails> getBasicAuthUsers(@Value("${BASIC_AUTH_USER_DETAILS_FILE_PATH}") String basicAuthFilePath)
+    public List<UserDetails> getBasicAuthUsers(
+        @Value("${BASIC_AUTH_USER_DETAILS_FILE_PATH}") String basicAuthFilePath)
         throws IOException {
       return Files.readAllLines(Path.of(basicAuthFilePath)).stream()
           .filter(line -> !line.isBlank())
@@ -117,7 +127,8 @@ public class WebSecurityConfig {
     }
 
     @Bean
-    public InMemoryUserDetailsManager basicAuthUserDetailsManager(@Qualifier("basicAuthUsers") List<UserDetails> basicAuthUsers){
+    public InMemoryUserDetailsManager basicAuthUserDetailsManager(
+        @Qualifier("basicAuthUsers") List<UserDetails> basicAuthUsers) {
       return new InMemoryUserDetailsManager(basicAuthUsers);
     }
 
@@ -135,14 +146,20 @@ public class WebSecurityConfig {
           .csrf()
           .disable()
           .formLogin()
-          .disable()
+          .usernameParameter("username")
+          .passwordParameter("password")
+          .loginPage(LOGIN_PATH)
+          .loginProcessingUrl("/login/basic")
+          .failureForwardUrl(LOGIN_PATH)
+          .defaultSuccessUrl(DASHBOARD_PATH)
+          .failureUrl(LOGIN_PATH)
+          .and()
           .requestMatcher(
               request -> {
                 final String auth = request.getHeader(AUTHORIZATION);
                 return githubAuthDisabled || auth != null && auth.startsWith("Basic");
               })
-          .authorizeRequests().antMatchers("/login/basic").permitAll()
-          .and().authorizeRequests()
+          .authorizeRequests()
           .anyRequest()
           .authenticated()
           .and()
@@ -158,7 +175,8 @@ public class WebSecurityConfig {
   @Order(3)
   @Configuration
   @RequiredArgsConstructor
-  @ConditionalOnProperty("GITHUB_OAUTH2_CLIENT_ID")
+  @ConditionalOnExpression(
+      "T(org.springframework.util.StringUtils).hasText('${GITHUB_OAUTH2_CLIENT_ID:}')")
   @ConditionalOnMissingBean(NoOpsWebSecurityConfig.class)
   public static class GithubOauthSecurityConfig extends WebSecurityConfigurerAdapter {
     private final GithubAuthenticationSuccessHandler authenticationSuccessHandler;
@@ -188,6 +206,9 @@ public class WebSecurityConfig {
           .authenticated()
           .and()
           .oauth2Login()
+          .loginPage(LOGIN_PATH)
+          .defaultSuccessUrl(DASHBOARD_PATH)
+          .failureUrl(LOGIN_PATH)
           .successHandler(authenticationSuccessHandler)
           .and()
           .logout()

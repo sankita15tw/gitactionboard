@@ -7,10 +7,14 @@ fileignoreconfig:
   checksum: 42bddec292c1e767c376d9a2344581a901ce9bc538950a6402b02d71c7e445a1
 - filename: backend/src/main/java/de/otto/platform/gitactionboard/adapters/controller/AuthenticationController.java
   checksum: 51c5a4ce0402fe4550c90468b22a9007a643714573eba99d611a3d2ad3012f09
+- filename: backend/src/main/java/de/otto/platform/gitactionboard/adapters/controller/BasicAuthenticationController.java
+  checksum: a34c899d5594d66729c93f0ee7a74bd995c5522790ca7110baeebe3e0565ffd3
 - filename: backend/src/main/java/de/otto/platform/gitactionboard/adapters/service/job/GithubJobDetailsService.java
   checksum: 04a9aaea483e1398231870d300a7d2be802e80d4b2db8e1e4568aa1165675ddb
 - filename: backend/src/main/resources/application.properties
   checksum: a8e9a356bb11b97e2229340e5339a7e0105ecd51dc79bc8165d59ed95705ae3a
+- filename: backend/src/test/resources/.htpasswd
+  checksum: 2e31e64b696f0f9267a4ebd694d90b27c6e0c4cefdd11349d199e185daab2d6c
 - filename: bin/install-talisman.sh
   checksum: 94703e38e7c00dbac423eaf0a25709dd83d8cd1274fb7d31628f4aabc60e287b
 - filename: doc/sample1.png
