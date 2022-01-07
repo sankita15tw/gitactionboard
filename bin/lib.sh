@@ -113,7 +113,7 @@ _run_locally() {
     npm install
     npm run build
     echo "Copying dist to ../backend/src/main/resources/public"
-    cp -r dist ../backend/src/main/resources/public
+    cp -r dist/ ../backend/src/main/resources/public
     popd >/dev/null || exit
   fi
 

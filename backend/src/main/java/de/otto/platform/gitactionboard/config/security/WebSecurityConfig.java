@@ -3,10 +3,12 @@ package de.otto.platform.gitactionboard.config.security;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter.Directive.ALL;
 
+import de.otto.platform.gitactionboard.domain.AuthenticationMechanism;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
@@ -31,6 +33,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.authentication.logout.HeaderWriterLogoutHandler;
 import org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter;
+import org.springframework.util.StringUtils;
 
 @EnableWebSecurity
 @Profile("beta")
@@ -41,6 +44,20 @@ public class WebSecurityConfig {
 
   private static HttpSecurity getDefaultSettings(HttpSecurity http) throws Exception {
     return http.cors().disable().csrf().disable().formLogin().disable();
+  }
+
+  @Bean
+  public List<AuthenticationMechanism> availableAuths(
+      @Value("${BASIC_AUTH_USER_DETAILS_FILE_PATH:}") String basicAuthDetailsFilePath,
+      @Value("${spring.security.oauth2.client.registration.github.client-id:-}")
+          String githubClientId) {
+    final ArrayList<AuthenticationMechanism> authenticationMechanisms = new ArrayList<>();
+
+    if (StringUtils.hasText(basicAuthDetailsFilePath))
+      authenticationMechanisms.add(AuthenticationMechanism.BASIC_AUTH);
+    if (!"-".equals(githubClientId)) authenticationMechanisms.add(AuthenticationMechanism.OAUTH2);
+
+    return authenticationMechanisms;
   }
 
   @Configuration
@@ -66,7 +83,7 @@ public class WebSecurityConfig {
         "/css/*.css",
         "/js/*.js",
         "favicon.ico",
-        "/login/**"
+        "/login/basic"
       };
 
       getDefaultSettings(http)
@@ -151,7 +168,7 @@ public class WebSecurityConfig {
           .loginPage(LOGIN_PATH)
           .loginProcessingUrl("/login/basic")
           .failureForwardUrl(LOGIN_PATH)
-          .defaultSuccessUrl(DASHBOARD_PATH)
+          .defaultSuccessUrl(DASHBOARD_PATH, true)
           .failureUrl(LOGIN_PATH)
           .and()
           .requestMatcher(
@@ -207,7 +224,6 @@ public class WebSecurityConfig {
           .and()
           .oauth2Login()
           .loginPage(LOGIN_PATH)
-          .defaultSuccessUrl(DASHBOARD_PATH)
           .failureUrl(LOGIN_PATH)
           .successHandler(authenticationSuccessHandler)
           .and()
