@@ -1,27 +1,43 @@
-const {fetchAccessToken} = require("@/services/authenticationService");
+const {
+  fetchAccessToken,
+  clearCookies,
+} = require("@/services/authenticationService");
 
-const validate = res => res.ok ? Promise.resolve(res) : Promise.reject(res);
+const validate = (res) => {
+  if (!res.ok && res.redirected) {
+    clearCookies();
+    window.location.assign("#/login");
+  }
+
+  return res.ok ? Promise.resolve(res) : Promise.reject(res);
+};
 
 const fetchAvailableAuths = () =>
-    fetch("./available-auths")
-        .then(validate)
-        .then(response => response.json());
+  fetch("./available-auths", {
+    headers: new Headers({
+      Accept: "application/json",
+    }),
+  })
+    .then(validate)
+    .then((response) => response.json());
 
 const fetchCctrayJson = () => {
-  return fetch("./v1/cctray", {headers: new Headers({"Authorization": fetchAccessToken()})})
-      .then(validate)
-      .then((res) => res.json());
-}
+  return fetch("./v1/cctray", {
+    headers: new Headers({
+      Authorization: fetchAccessToken(),
+      Accept: "application/json",
+    }),
+  })
+    .then(validate)
+    .then((res) => res.json());
+};
 
 const authenticate = (username, password) => {
-  return fetch("./login/basic",
-      {
-        method: 'POST',
-        headers: new Headers({"Content-Type": "application/json"}),
-        body: JSON.stringify({username, password})
-      }
-  )
-      .then(validate);
-}
+  return fetch("./login/basic", {
+    method: "POST",
+    headers: new Headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ username, password }),
+  }).then(validate);
+};
 
-module.exports = { fetchAvailableAuths, fetchCctrayJson, authenticate }
+module.exports = { fetchAvailableAuths, fetchCctrayJson, authenticate };

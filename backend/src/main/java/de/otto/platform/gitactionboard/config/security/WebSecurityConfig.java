@@ -80,9 +80,9 @@ public class WebSecurityConfig {
         "/available-auths",
         "/",
         "/index.html",
-        "/css/*.css",
-        "/js/*.js",
-        "favicon.ico",
+        "/css/**",
+        "/js/**",
+        "/favicon.ico",
         "/login/basic"
       };
 
